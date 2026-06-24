@@ -4,6 +4,7 @@ namespace DreamFactory\Core\Agents\Http\Controllers;
 
 use DreamFactory\Core\Agents\Models\Agent;
 use DreamFactory\Core\Agents\Models\AgentAccessRequest;
+use DreamFactory\Core\Agents\Support\AgentAlerts;
 use DreamFactory\Core\Enums\VerbsMask;
 use DreamFactory\Core\Utility\Session;
 use Illuminate\Http\Request;
@@ -78,6 +79,110 @@ class AgentSelfServiceController extends Controller
             'message'    => 'Access request submitted for human approval. '
                 . 'Poll your administrator or re-run discover_services after approval.',
         ];
+    }
+
+    /**
+     * Broker inbox: pending requests from OTHER agents for a service THIS agent
+     * owns (i.e. its role grants access to that service). This is the
+     * agent-to-agent governance surface — a domain-owning agent reviews and
+     * decides access requests into its own data domain, exactly as a human admin
+     * does, instead of every request escalating to a person.
+     */
+    public function inbox(Request $request)
+    {
+        $broker = $this->resolveAgent();
+        if (!$broker) {
+            return response()->json(['error' => 'inbox is only available to agent API keys.'], 403);
+        }
+        $mine = $this->accessibleServiceIds();           // null => all services
+        $out = [];
+        foreach (AgentAccessRequest::where('status', 'pending')
+                     ->where('agent_id', '!=', $broker->id)->get() as $req) {
+            if ($this->brokerCovers($mine, $req->requestedServiceIds())) {
+                $out[] = [
+                    'request_id' => $req->id,
+                    'from_agent' => optional($req->agent)->name,
+                    'services'   => (array)$req->requested_services,
+                    'operations' => (array)$req->requested_operations,
+                    'note'       => $req->note,
+                ];
+            }
+        }
+        return ['broker' => $broker->name, 'requests' => $out];
+    }
+
+    /**
+     * Broker decision: the calling agent approves/denies a request into a domain
+     * it owns. Authorized only if the broker's role actually grants the requested
+     * service(s). On approve, the existing model hook grants the requester the
+     * scoped access and fires the alert.
+     */
+    public function resolve(Request $request)
+    {
+        $broker = $this->resolveAgent();
+        if (!$broker) {
+            return response()->json(['error' => 'resolve is only available to agent API keys.'], 403);
+        }
+        $req = AgentAccessRequest::find($request->input('request_id'));
+        if (!$req || $req->status !== 'pending') {
+            return response()->json(['error' => 'No pending request with that id.'], 404);
+        }
+        if ($req->agent_id === $broker->id) {
+            return response()->json(['error' => 'An agent cannot resolve its own request.'], 403);
+        }
+        if (!$this->brokerCovers($this->accessibleServiceIds(), $req->requestedServiceIds())) {
+            return response()->json(
+                ['error' => 'You do not own the requested service domain, so you cannot broker this request.'],
+                403
+            );
+        }
+
+        $decision = strtolower((string)$request->input('decision'));
+        $req->status = $decision === 'approve' ? 'approved' : 'denied';
+        $note = trim((string)$request->input('note'));
+        $req->note = trim(($req->note ? $req->note . ' · ' : '')
+            . 'brokered by ' . $broker->name . ($note ? ': ' . $note : ''));
+        $req->save();  // model hook applies the grant (on approve) + the resolved alert
+
+        AgentAlerts::agentAction($broker->name,
+            ":handshake: *df-agents* — agent `{$broker->name}` *{$req->status}* "
+            . "`" . (optional($req->agent)->name ?? 'agent') . "`'s request to its data domain",
+            ['broker' => $broker->name, 'request_id' => $req->id, 'decision' => $req->status]);
+
+        return [
+            'status'     => $req->status,
+            'broker'     => $broker->name,
+            'request_id' => $req->id,
+            'message'    => $req->status === 'approved'
+                ? 'Access granted to the requesting agent on your domain.'
+                : 'Request denied.',
+        ];
+    }
+
+    /** Service ids the calling agent's role grants. null means "all services". */
+    private function accessibleServiceIds(): ?array
+    {
+        $ids = [];
+        foreach ((array)Session::get('role.services') as $a) {
+            $sid = $a['service_id'] ?? null;
+            if ($sid === null || $sid === 0 || $sid === '') {
+                return null;  // role grants all services
+            }
+            $ids[] = (int)$sid;
+        }
+        return array_values(array_unique($ids));
+    }
+
+    /** True if the broker's accessible services cover every requested service. */
+    private function brokerCovers(?array $brokerIds, array $requestedIds): bool
+    {
+        if ($brokerIds === null) {
+            return true;  // broker has all-services access
+        }
+        if (empty($requestedIds)) {
+            return false;
+        }
+        return empty(array_diff($requestedIds, $brokerIds));
     }
 
     /** Resolve the agent behind the request's API key (set on the session by AuthCheck). */

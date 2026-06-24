@@ -72,6 +72,10 @@ class ServiceProvider extends \Illuminate\Support\ServiceProvider
             ->group(function () {
                 Route::get('catalog', [AgentSelfServiceController::class, 'catalog']);
                 Route::post('request_access', [AgentSelfServiceController::class, 'requestAccess']);
+                // Agent-to-agent brokering: a domain-owning agent reviews and
+                // resolves requests into its own data domain.
+                Route::get('inbox', [AgentSelfServiceController::class, 'inbox']);
+                Route::post('resolve', [AgentSelfServiceController::class, 'resolve']);
             });
     }
 }
