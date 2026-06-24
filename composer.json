@@ -1,0 +1,51 @@
+{
+  "name": "dreamfactory/df-agents",
+  "description": "DreamFactory AI agent identity + governed access (Agent Access Negotiation MVP).",
+  "homepage": "https://www.dreamfactory.com/",
+  "keywords": [
+    "dreamfactory",
+    "laravel",
+    "rest",
+    "api",
+    "agents",
+    "ai",
+    "mcp"
+  ],
+  "license": [
+    "Apache-2.0"
+  ],
+  "authors": [
+    {
+      "name": "DreamFactory Team",
+      "email": "code@dreamfactory.com"
+    }
+  ],
+  "support": {
+    "email": "dspsupport@dreamfactory.com",
+    "source": "https://github.com/dreamfactorysoftware/df-agents",
+    "issues": "https://github.com/dreamfactorysoftware/df-agents/issues"
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true,
+  "require": {
+    "php": "^8.3",
+    "laravel/helpers": "^1.8",
+    "dreamfactory/df-core": "~1.0",
+    "dreamfactory/df-system": "~0.6"
+  },
+  "autoload": {
+    "psr-4": {
+      "DreamFactory\\Core\\Agents\\": "src/"
+    }
+  },
+  "extra": {
+    "branch-alias": {
+      "dev-develop": "0.1.x-dev"
+    },
+    "laravel": {
+      "providers": [
+        "DreamFactory\\Core\\Agents\\ServiceProvider"
+      ]
+    }
+  }
+}
