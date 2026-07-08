@@ -47,6 +47,15 @@ class AgentAccessRequest extends BaseSystemModel
         'status'   => 'in:pending,approved,denied',
     ];
 
+    /**
+     * Set true by the agent-broker resolve path so the grant is clamped to the
+     * broker's OWN access — a broker may never grant operations it does not itself
+     * hold (see AgentSelfServiceController::resolve). Left false for human-admin
+     * approvals, whose verb authority is enforced by normal RBAC on the approving
+     * account. Declared as a real property so Eloquent never persists it.
+     */
+    public bool $clampGrantToSession = false;
+
     public static function boot()
     {
         parent::boot();
@@ -72,7 +81,7 @@ class AgentAccessRequest extends BaseSystemModel
                     // next request (same key) succeeds. Key rotation is available
                     // via Agent::rotateKey() but kept off here so an in-flight
                     // agent loop isn't broken mid-task.
-                    $req->grantRequestedAccess($agent);
+                    $req->grantRequestedAccess($agent, $req->clampGrantToSession);
                 }
                 AgentAlerts::accessResolved($req);
             }
@@ -88,26 +97,30 @@ class AgentAccessRequest extends BaseSystemModel
     /** GET=1, POST=2, PUT=4, PATCH=8, DELETE=16 (VerbsMask bits). */
     private const VERB_BITS = ['GET' => 1, 'HEAD' => 1, 'POST' => 2, 'PUT' => 4, 'PATCH' => 8, 'DELETE' => 16];
 
+    /** Fold a list of operation names ("POST","delete",…) into a VerbsMask. Empty => GET. */
+    public static function operationsToMask(array $operations): int
+    {
+        $mask = 0;
+        foreach ($operations as $op) {
+            $mask |= (self::VERB_BITS[strtoupper(trim((string)$op))] ?? 0);
+        }
+        return $mask ?: self::VERB_BITS['GET'];
+    }
+
     /**
      * Add the requested operations to the agent's role for the requested
      * services. Upgrades the agent's existing per-table grants in place (so a
      * read-only agent that asked for write keeps its exact table scope, now with
      * write); falls back to a `_table/*` grant if the role had no access there.
      */
-    public function grantRequestedAccess(Agent $agent): void
+    public function grantRequestedAccess(Agent $agent, bool $clampToSession = false): void
     {
         $roleId = $agent->role_id;
         if (!$roleId) {
             return;
         }
 
-        $verbMask = 0;
-        foreach ((array)$this->requested_operations as $op) {
-            $verbMask |= (self::VERB_BITS[strtoupper(trim((string)$op))] ?? 0);
-        }
-        if ($verbMask === 0) {
-            $verbMask = self::VERB_BITS['GET'];
-        }
+        $requestedMask = self::operationsToMask((array)$this->requested_operations);
 
         foreach ((array)$this->requested_services as $svcRaw) {
             // Accept either a bare service name ("mysql") or a table-scoped
@@ -119,6 +132,19 @@ class AgentAccessRequest extends BaseSystemModel
             if (!$service) {
                 continue;
             }
+
+            // When an agent brokered this approval, never grant an operation the
+            // broker does not itself hold on this exact target. getServicePermissions
+            // returns the approver's own verb mask (all verbs for a sysadmin, so the
+            // human path is unchanged), so ANDing clamps an over-broad request down.
+            $verbMask = $requestedMask;
+            if ($clampToSession) {
+                $verbMask &= Session::getServicePermissions($svcName, $component ?? '_table/*');
+                if ($verbMask === 0) {
+                    continue; // broker holds nothing here — grant nothing
+                }
+            }
+
             $query = RoleServiceAccess::where('role_id', $roleId)
                 ->where('service_id', $service->id);
             if ($component !== null) {

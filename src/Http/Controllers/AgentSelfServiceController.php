@@ -138,6 +138,28 @@ class AgentSelfServiceController extends Controller
         }
 
         $decision = strtolower((string)$request->input('decision'));
+
+        // Verb-level authorization. brokerCovers() only proves the broker's role
+        // touches the requested SERVICES; it says nothing about operations. Without
+        // this gate a read-only broker could approve POST/PUT/DELETE and escalate
+        // another agent above its own privileges. Require the broker to actually
+        // hold every requested operation on every requested target before approving.
+        if ($decision === 'approve') {
+            $requestedMask = AgentAccessRequest::operationsToMask((array)$req->requested_operations);
+            foreach ((array)$req->requested_services as $svcRaw) {
+                [$svcName, $component] = AgentAccessRequest::parseServiceTarget((string)$svcRaw);
+                $brokerMask = Session::getServicePermissions($svcName, $component ?? '_table/*');
+                if ($requestedMask & ~$brokerMask) {
+                    return response()->json([
+                        'error' => "You cannot grant operations you do not hold on '{$svcName}'. "
+                            . 'A broker may only approve access within its own permissions.',
+                    ], 403);
+                }
+            }
+            // Belt-and-suspenders: also clamp the grant itself to the broker's mask.
+            $req->clampGrantToSession = true;
+        }
+
         $req->status = $decision === 'approve' ? 'approved' : 'denied';
         $note = trim((string)$request->input('note'));
         $req->note = trim(($req->note ? $req->note . ' · ' : '')
