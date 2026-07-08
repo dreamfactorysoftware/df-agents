@@ -19,7 +19,8 @@ class CreateAgentsTables extends Migration
         Schema::create('agents', function (Blueprint $t) use ($onDelete) {
             $t->increments('id');
             $t->string('name', 64)->unique();
-            $t->string('description')->nullable();
+            // Free-form, plausibly LLM-written at registration — overflows varchar(255).
+            $t->text('description')->nullable();
             // The human who owns/manages this agent.
             $t->integer('owner_id')->unsigned()->nullable();
             $t->foreign('owner_id')->references('id')->on('user')->onDelete($onDelete);
@@ -47,7 +48,9 @@ class CreateAgentsTables extends Migration
             // JSON arrays of requested service names / operations (GET, POST, ...).
             $t->mediumText('requested_services')->nullable();
             $t->mediumText('requested_operations')->nullable();
-            $t->string('note')->nullable();
+            // Free-form: the requester's reason, then the broker's decision note
+            // appended on resolve. Both are LLM-generated and overflow varchar(255).
+            $t->text('note')->nullable();
             $t->string('status', 32)->default('pending');
             $t->integer('resolved_by_id')->unsigned()->nullable();
             $t->foreign('resolved_by_id')->references('id')->on('user')->onDelete($onDelete);
