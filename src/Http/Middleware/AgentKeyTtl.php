@@ -32,6 +32,12 @@ class AgentKeyTtl
                     ));
                 }
                 $this->touch($agent);
+
+                // Publish agent context for the rest of the request: audit loggers,
+                // the ledger, and policy checks read this instead of re-resolving.
+                // The requestor is an AGENT (ServiceRequestorTypes::AGENT), bonded
+                // to a human owner — that pair is the attribution chain.
+                app()->instance('df.agent', $agent);
             }
         }
 
