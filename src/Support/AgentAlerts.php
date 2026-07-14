@@ -45,6 +45,25 @@ class AgentAlerts
         self::fire('system.agent.action', $message, ['agent' => $agentName] + $meta);
     }
 
+    /**
+     * Activation flips: kill switch, reactivation, and sponsor auto-suspend
+     * (reason tells them apart: manual / owner_deactivated / owner_deleted).
+     */
+    public static function lifecycle(\DreamFactory\Core\Agents\Models\Agent $agent, string $reason): void
+    {
+        $active = (bool) $agent->is_active;
+        $event = $active ? 'system.agent.reactivated' : 'system.agent.deactivated';
+        $icon = $active ? ':large_green_circle:' : ':octagonal_sign:';
+        $state = $active ? 'reactivated' : 'DEACTIVATED';
+        $msg = "{$icon} *df-agents* — Agent `{$agent->name}` was *{$state}* (reason: {$reason})";
+        self::fire($event, $msg, [
+            'agent'    => $agent->name,
+            'agent_id' => $agent->id,
+            'owner_id' => $agent->owner_id,
+            'reason'   => $reason,
+        ]);
+    }
+
     private static function fire(string $event, string $message, array $meta): void
     {
         $handler = self::HANDLER;

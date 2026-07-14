@@ -4,8 +4,10 @@ namespace DreamFactory\Core\Agents;
 
 use DreamFactory\Core\Agents\Http\Controllers\AgentSelfServiceController;
 use DreamFactory\Core\Agents\Http\Middleware\AgentKeyTtl;
+use DreamFactory\Core\Agents\Models\Agent;
 use DreamFactory\Core\Agents\Models\AgentsConfig;
 use DreamFactory\Core\Agents\Services\Agents;
+use DreamFactory\Core\Models\User;
 use DreamFactory\Core\Services\ServiceManager;
 use DreamFactory\Core\Services\ServiceType;
 use Illuminate\Support\Facades\Route;
@@ -40,6 +42,18 @@ class ServiceProvider extends \Illuminate\Support\ServiceProvider
         // agent from the API key, so a non-agent key just passes through.
         Route::aliasMiddleware('df.agent_ttl', AgentKeyTtl::class);
         Route::pushMiddlewareToGroup('df.api', 'df.agent_ttl');
+
+        // Sponsor rule: agents may not outlive their owner's account. Catches
+        // admin-UI deactivation and directory-sync (df-adldap) deactivation
+        // alike — both go through the User model.
+        User::saved(function (User $user): void {
+            if ($user->wasChanged('is_active') && !$user->is_active) {
+                Agent::suspendOwnedBy((int) $user->id, 'owner_deactivated');
+            }
+        });
+        User::deleted(function (User $user): void {
+            Agent::suspendOwnedBy((int) $user->id, 'owner_deleted');
+        });
     }
 
     private function addServiceType(ServiceManager $df): void

@@ -69,6 +69,31 @@ class Agent extends BaseSystemModel
         'key_ttl_hours' => 'integer|min:1|max:24',
     ];
 
+    /**
+     * Transient reason tag ('manual', 'owner_deactivated', 'owner_deleted')
+     * read by the saved hook when is_active flips. Declared property, so it
+     * bypasses Eloquent attribute magic and is never persisted.
+     */
+    public ?string $lifecycleReason = null;
+
+    /**
+     * Sponsor rule: an agent may not outlive its owner's account. Called when
+     * a user is deactivated or deleted; each owned agent suspends (backing app
+     * deactivates via the saved hook, so its key stops authenticating) until
+     * re-sponsored.
+     */
+    public static function suspendOwnedBy(int $ownerId, string $reason): int
+    {
+        $count = 0;
+        foreach (static::where('owner_id', $ownerId)->where('is_active', true)->get() as $agent) {
+            $agent->lifecycleReason = $reason;
+            $agent->is_active = false;
+            $agent->save();
+            $count++;
+        }
+        return $count;
+    }
+
     public static function boot()
     {
         parent::boot();
@@ -85,6 +110,16 @@ class Agent extends BaseSystemModel
         // Keep the backing App in lock-step with the agent's role + key.
         static::saved(function (Agent $agent) {
             $agent->syncBackingApp();
+
+            // Lifecycle alert on every activation flip: the kill switch and the
+            // sponsor auto-suspend both land here, tagged with their reason.
+            if ($agent->wasChanged('is_active')) {
+                \DreamFactory\Core\Agents\Support\AgentAlerts::lifecycle(
+                    $agent,
+                    $agent->lifecycleReason ?? 'manual'
+                );
+                $agent->lifecycleReason = null;
+            }
             return true;
         });
 
