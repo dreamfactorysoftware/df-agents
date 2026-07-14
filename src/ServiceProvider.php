@@ -3,6 +3,7 @@
 namespace DreamFactory\Core\Agents;
 
 use DreamFactory\Core\Agents\Http\Controllers\AgentSelfServiceController;
+use DreamFactory\Core\Agents\Http\Middleware\ActivityLedger;
 use DreamFactory\Core\Agents\Http\Middleware\AgentKeyTtl;
 use DreamFactory\Core\Agents\Models\Agent;
 use DreamFactory\Core\Agents\Models\AgentsConfig;
@@ -42,6 +43,11 @@ class ServiceProvider extends \Illuminate\Support\ServiceProvider
         // agent from the API key, so a non-agent key just passes through.
         Route::aliasMiddleware('df.agent_ttl', AgentKeyTtl::class);
         Route::pushMiddlewareToGroup('df.api', 'df.agent_ttl');
+
+        // The semantic ledger. Pushed AFTER df.agent_ttl so the resolved agent
+        // context is available when the row is written.
+        Route::aliasMiddleware('df.activity_ledger', ActivityLedger::class);
+        Route::pushMiddlewareToGroup('df.api', 'df.activity_ledger');
 
         // Sponsor rule: agents may not outlive their owner's account. Catches
         // admin-UI deactivation and directory-sync (df-adldap) deactivation

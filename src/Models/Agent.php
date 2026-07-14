@@ -100,6 +100,19 @@ class Agent extends BaseSystemModel
 
         // Mint a key + start the TTL clock on creation.
         static::creating(function (Agent $agent) {
+            // The core invariant: every agent is bonded to a live human owner.
+            // 100% traceable or it doesn't run — no orphan agents, ever.
+            if (empty($agent->owner_id)) {
+                throw new \DreamFactory\Core\Exceptions\BadRequestException(
+                    'Every agent must be bonded to a human owner (owner_id is required).'
+                );
+            }
+            $owner = \DreamFactory\Core\Models\User::find($agent->owner_id);
+            if (!$owner || !$owner->is_active) {
+                throw new \DreamFactory\Core\Exceptions\BadRequestException(
+                    'Agent owner_id must reference an active user account.'
+                );
+            }
             if (empty($agent->api_key)) {
                 $agent->api_key = App::generateApiKey($agent->name);
             }
