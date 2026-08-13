@@ -4,6 +4,7 @@ namespace DreamFactory\Core\Agents\Services;
 
 use DreamFactory\Core\Agents\Resources\AgentAccessRequestResource;
 use DreamFactory\Core\Agents\Resources\AgentResource;
+use DreamFactory\Core\Agents\Resources\AgentRouteResource;
 use DreamFactory\Core\Contracts\ServiceRequestInterface;
 use DreamFactory\Core\Exceptions\ForbiddenException;
 use DreamFactory\Core\Services\BaseRestService;
@@ -13,6 +14,7 @@ use DreamFactory\Core\Utility\Session;
  * The agents management service. Backs the admin UI:
  *   GET/POST/PATCH/DELETE /api/v2/agents/agents      (agent CRUD)
  *   GET/PATCH             /api/v2/agents/requests     (access-request queue)
+ *   POST                  /api/v2/agents/route        (task -> agent routing)
  *
  * Agent self-service (catalog, request_access) is NOT here — those live on
  * auth-only routes under /api/v2/agent/* so an agent can reach them with its own
@@ -30,6 +32,11 @@ class Agents extends BaseRestService
             'name'       => AgentAccessRequestResource::RESOURCE_NAME,
             'class_name' => AgentAccessRequestResource::class,
             'label'      => 'Access Requests',
+        ],
+        AgentRouteResource::RESOURCE_NAME => [
+            'name'       => AgentRouteResource::RESOURCE_NAME,
+            'class_name' => AgentRouteResource::class,
+            'label'      => 'Route Task',
         ],
     ];
 

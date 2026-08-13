@@ -5,6 +5,7 @@ namespace DreamFactory\Core\Agents\Models;
 use DreamFactory\Core\Models\App;
 use DreamFactory\Core\Models\BaseSystemModel;
 use DreamFactory\Core\Models\Role;
+use DreamFactory\Core\Models\Service;
 use DreamFactory\Core\Models\User;
 
 /**
@@ -36,6 +37,8 @@ class Agent extends BaseSystemModel
         'api_key',
         'key_ttl_hours',
         'is_active',
+        'skills',
+        'chat_service_id',
     ];
 
     protected $guarded = [
@@ -49,11 +52,14 @@ class Agent extends BaseSystemModel
     ];
 
     protected $casts = [
-        'id'            => 'integer',
-        'owner_id'      => 'integer',
-        'role_id'       => 'integer',
-        'key_ttl_hours' => 'integer',
-        'is_active'     => 'boolean',
+        'id'              => 'integer',
+        'owner_id'        => 'integer',
+        'role_id'         => 'integer',
+        'key_ttl_hours'   => 'integer',
+        'is_active'       => 'boolean',
+        // JSON array of capability keywords, matched by AgentRouteResource.
+        'skills'          => 'array',
+        'chat_service_id' => 'integer',
     ];
 
     // Defaults present in memory on create, so the saved hook syncs an ACTIVE
@@ -100,6 +106,19 @@ class Agent extends BaseSystemModel
 
         // Mint a key + start the TTL clock on creation.
         static::creating(function (Agent $agent) {
+            // The core invariant: every agent is bonded to a live human owner.
+            // 100% traceable or it doesn't run — no orphan agents, ever.
+            if (empty($agent->owner_id)) {
+                throw new \DreamFactory\Core\Exceptions\BadRequestException(
+                    'Every agent must be bonded to a human owner (owner_id is required).'
+                );
+            }
+            $owner = \DreamFactory\Core\Models\User::find($agent->owner_id);
+            if (!$owner || !$owner->is_active) {
+                throw new \DreamFactory\Core\Exceptions\BadRequestException(
+                    'Agent owner_id must reference an active user account.'
+                );
+            }
             if (empty($agent->api_key)) {
                 $agent->api_key = App::generateApiKey($agent->name);
             }
@@ -142,6 +161,12 @@ class Agent extends BaseSystemModel
     public function access_requests()
     {
         return $this->hasMany(AgentAccessRequest::class, 'agent_id');
+    }
+
+    /** The agent's chat persona service, handed out by the route resource. */
+    public function chat_service()
+    {
+        return $this->belongsTo(Service::class, 'chat_service_id');
     }
 
     /** Stable name for this agent's backing App, independent of key rotation. */

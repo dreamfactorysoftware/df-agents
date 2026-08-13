@@ -3,11 +3,13 @@
 namespace DreamFactory\Core\Agents;
 
 use DreamFactory\Core\Agents\Http\Controllers\AgentSelfServiceController;
+use DreamFactory\Core\Agents\Http\Middleware\ActivityLedger;
 use DreamFactory\Core\Agents\Http\Middleware\AgentKeyTtl;
 use DreamFactory\Core\Agents\Models\Agent;
 use DreamFactory\Core\Agents\Models\AgentsConfig;
 use DreamFactory\Core\Agents\Services\Agents;
 use DreamFactory\Core\Models\User;
+use DreamFactory\Core\Enums\LicenseLevel;
 use DreamFactory\Core\Services\ServiceManager;
 use DreamFactory\Core\Services\ServiceType;
 use Illuminate\Support\Facades\Route;
@@ -43,6 +45,11 @@ class ServiceProvider extends \Illuminate\Support\ServiceProvider
         Route::aliasMiddleware('df.agent_ttl', AgentKeyTtl::class);
         Route::pushMiddlewareToGroup('df.api', 'df.agent_ttl');
 
+        // The semantic ledger. Pushed AFTER df.agent_ttl so the resolved agent
+        // context is available when the row is written.
+        Route::aliasMiddleware('df.activity_ledger', ActivityLedger::class);
+        Route::pushMiddlewareToGroup('df.api', 'df.activity_ledger');
+
         // Sponsor rule: agents may not outlive their owner's account. Catches
         // admin-UI deactivation and directory-sync (df-adldap) deactivation
         // alike — both go through the User model.
@@ -63,6 +70,7 @@ class ServiceProvider extends \Illuminate\Support\ServiceProvider
             'label'          => 'Agents',
             'description'    => 'AI agent identity and governed access.',
             'group'          => 'Agents',
+            'subscription_required' => LicenseLevel::SILVER,
             'singleton'      => true,
             'config_handler' => AgentsConfig::class,
             'factory'        => function ($config) {
