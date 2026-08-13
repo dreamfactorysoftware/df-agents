@@ -9,6 +9,7 @@ use DreamFactory\Core\Agents\Models\Agent;
 use DreamFactory\Core\Agents\Models\AgentsConfig;
 use DreamFactory\Core\Agents\Services\Agents;
 use DreamFactory\Core\Models\User;
+use DreamFactory\Core\Enums\LicenseLevel;
 use DreamFactory\Core\Services\ServiceManager;
 use DreamFactory\Core\Services\ServiceType;
 use Illuminate\Support\Facades\Route;
@@ -69,6 +70,7 @@ class ServiceProvider extends \Illuminate\Support\ServiceProvider
             'label'          => 'Agents',
             'description'    => 'AI agent identity and governed access.',
             'group'          => 'Agents',
+            'subscription_required' => LicenseLevel::SILVER,
             'singleton'      => true,
             'config_handler' => AgentsConfig::class,
             'factory'        => function ($config) {
