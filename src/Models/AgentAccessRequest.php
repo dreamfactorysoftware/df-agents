@@ -145,17 +145,19 @@ class AgentAccessRequest extends BaseSystemModel
                 }
             }
 
+            // A bare service name means "all tables": target the _table/* row
+            // explicitly. OR-ing into whatever rows already exist never widens
+            // access to a table the role has no row for (that was a silent no-op).
+            $target = $component ?? '_table/*';
             $query = RoleServiceAccess::where('role_id', $roleId)
-                ->where('service_id', $service->id);
-            if ($component !== null) {
-                $query->where('component', $component);
-            }
+                ->where('service_id', $service->id)
+                ->where('component', $target);
             $rows = $query->get();
             if ($rows->isEmpty()) {
                 RoleServiceAccess::create([
                     'role_id'        => $roleId,
                     'service_id'     => $service->id,
-                    'component'      => $component ?? '_table/*',
+                    'component'      => $target,
                     'verb_mask'      => $verbMask,
                     'requestor_mask' => 3, // API | SCRIPT
                     'filters'        => [],
