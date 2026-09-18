@@ -2,6 +2,7 @@
 
 namespace DreamFactory\Core\Agents;
 
+use DreamFactory\Core\Agents\Commands\PruneLedger;
 use DreamFactory\Core\Agents\Http\Controllers\AgentSelfServiceController;
 use DreamFactory\Core\Agents\Http\Middleware\ActivityLedger;
 use DreamFactory\Core\Agents\Http\Middleware\AgentKeyTtl;
@@ -12,12 +13,15 @@ use DreamFactory\Core\Models\User;
 use DreamFactory\Core\Enums\LicenseLevel;
 use DreamFactory\Core\Services\ServiceManager;
 use DreamFactory\Core\Services\ServiceType;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Route;
 
 class ServiceProvider extends \Illuminate\Support\ServiceProvider
 {
     public function register()
     {
+        $this->mergeConfigFrom(__DIR__ . '/../config/agents.php', 'df-agents');
+
         $this->app->resolving('df.service', function (ServiceManager $df) {
             $this->addServiceType($df);
         });
@@ -60,6 +64,32 @@ class ServiceProvider extends \Illuminate\Support\ServiceProvider
         });
         User::deleted(function (User $user): void {
             Agent::suspendOwnedBy((int) $user->id, 'owner_deleted');
+        });
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([PruneLedger::class]);
+            $this->scheduleLedgerPrune();
+        }
+    }
+
+    /**
+     * The ledger takes a row for every /api/v2 data-plane request, so prune it
+     * daily when a retention window is set (0 keeps everything). Hooked on
+     * Schedule resolution, so it only does anything under schedule:run /
+     * schedule:list.
+     *
+     * Deliberately no withoutOverlapping()/onOneServer(): both take a lock
+     * through the cache store, and where that store is unreachable (e.g. the
+     * redis driver with REDIS_HOST unset) schedule:run silently skips the
+     * task. An overlapping or per-node duplicate run just finds nothing left
+     * to delete.
+     */
+    private function scheduleLedgerPrune(): void
+    {
+        $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
+            if ((int) config('df-agents.ledger.retention_days', 90) > 0) {
+                $schedule->command('agents:prune-ledger')->daily();
+            }
         });
     }
 
